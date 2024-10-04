@@ -1,0 +1,30 @@
+#define ledred 22
+#define ledyellow 23
+#define ledgreen 21
+
+
+void setup() {
+  // put your setup code here, to run once:
+ pinMode (ledred, OUTPUT);
+ pinMode (ledyellow, OUTPUT);
+ pinMode (ledgreen, OUTPUT);
+ 
+}
+
+void loop() {
+  // put your main code here, to run repeatedly:
+ digitalWrite(ledred, HIGH);
+ delay(450);
+ digitalWrite(ledred, LOW);
+ digitalWrite(ledyellow, HIGH);
+ delay(450);
+ digitalWrite(ledyellow, LOW);
+ digitalWrite(ledyellow, HIGH);
+ delay(450);
+ digitalWrite(ledyellow, LOW);
+ digitalWrite(ledgreen, HIGH);
+ delay(450);
+ digitalWrite(ledgreen, LOW);
+
+
+}
