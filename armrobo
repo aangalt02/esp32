@@ -1,0 +1,208 @@
+#include <WiFi.h>
+#include <ESP32Servo.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include <ArduinoJson.h>  
+
+const char* ssid = "ARMxRobo";
+const char* password = "12345678";
+
+const int servoPin1 = 21;
+const int servoPin2 = 19;
+const int servoPin3 = 18;
+const int servoPin4 = 5;
+const int servoPin5 = 17;
+const int ledwifi = 16;
+
+Servo servo1;
+Servo servo2;
+Servo servo3;
+Servo servo4;
+Servo servo5;
+
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
+
+bool autoMode1 = false;
+bool autoMode2 = false;
+
+void setup() {
+    Serial.begin(9600);
+    pinMode(ledwifi, OUTPUT);
+    servo1.attach(servoPin1);
+    servo2.attach(servoPin2);
+    servo3.attach(servoPin3);
+    servo4.attach(servoPin4);
+    servo5.attach(servoPin5);
+
+    WiFi.softAP(ssid, password);
+    Serial.println("Access Point started");
+    Serial.print("Connect to Wi-Fi network: ");
+    Serial.println(ssid);
+
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+        request->send(200, "text/html", R"rawliteral(
+        <!DOCTYPE HTML>
+        <html>
+        <head>
+            <title>ESP32 Servo Control</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    max-width: 600px;
+                    margin: auto;
+                    padding: 20px;
+                }
+                h1 {
+                    text-align: center;
+                    font-size: 2em;
+                }
+                p, .buttons {
+                    font-size: 1.2em;
+                    text-align: center;
+                }
+                input[type="range"] {
+                    width: 100%;
+                    height: 30px;
+                }
+                button {
+                    padding: 10px 20px;
+                    font-size: 1em;
+                    margin: 10px;
+                    cursor: pointer;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>ESP32 Servo Control</h1>
+            <p>AB_kepala: <input type="range" min="0" max="65" value="0" oninput="sendAngle(1, this.value)"></p>
+            <p>AB_badan: <input type="range" min="0" max="65" value="0" oninput="sendAngle(2, this.value)"></p>
+            <p>Jari: <input type="range" min="0" max="180" value="0" oninput="sendAngle(3, this.value)"></p>
+            <p>MM_jarir: <input type="range" min="0" max="180" value="0" oninput="sendAngle(4, this.value)"></p>
+            <p>Kiri_kanan: <input type="range" min="0" max="180" value="0" oninput="sendAngle(5, this.value)"></p>
+            
+            <div class="buttons">
+                <button onclick="startAutoMode1()">Start Excavator Mode 1</button>
+                <button onclick="startAutoMode2()">Start Excavator Mode 2</button>
+                <button onclick="stopAllModes()">Stop All Modes</button>
+            </div>
+            
+            <script>
+                const ws = new WebSocket(`ws://${location.host}/ws`);
+
+                function sendAngle(servo, angle) {
+                    ws.send(JSON.stringify({servo: servo, angle: angle}));
+                }
+
+                function startAutoMode1() {
+                    ws.send(JSON.stringify({mode: "start_auto1"}));
+                }
+
+                function startAutoMode2() {
+                    ws.send(JSON.stringify({mode: "start_auto2"}));
+                }
+
+                function stopAllModes() {
+                    ws.send(JSON.stringify({mode: "stop_all"}));
+                }
+            </script>
+        </body>
+        </html>
+        )rawliteral");
+    });
+
+    ws.onEvent(onWebSocketEvent);
+    server.addHandler(&ws);
+
+    server.begin();
+    Serial.println("Web server started");
+}
+
+void loop() {
+    if (autoMode1) {
+
+        servo2.write(65); delay(200);
+        if (!autoMode1) return;
+        servo5.write(25); delay(200);
+        if (!autoMode1) return;
+        servo4.write(0); delay(200);
+        if (!autoMode1) return;
+        servo1.write(33); delay(200);
+        if (!autoMode1) return;
+        servo3.write(0); delay(200);
+        if (!autoMode1) return;
+    }
+
+    if (autoMode2) {
+        servo5.write(180); delay(200);
+        if (!autoMode2) return;
+    }
+
+    // WiFi indicator LED logic
+    if (WiFi.softAPgetStationNum() > 0) {
+        digitalWrite(ledwifi, HIGH);
+        delay(100);
+        digitalWrite(ledwifi, LOW);
+        delay(150);
+        digitalWrite(ledwifi, HIGH);
+        delay(100);
+        digitalWrite(ledwifi, LOW);
+        delay(300);
+    } else {
+        digitalWrite(ledwifi, HIGH);
+    }
+
+    ws.cleanupClients();
+}
+
+void stopAllModes() {
+    autoMode1 = false;
+    autoMode2 = false;
+    resetServos();
+}
+
+void resetServos() {
+    servo1.write(0);
+    servo2.write(0);
+    servo3.write(0);
+    servo4.write(180);
+    servo5.write(90);
+}
+
+void onWebSocketEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t * data, size_t len) {
+    if(type == WS_EVT_DATA) {
+        String msg = String((char*)data).substring(0, len);
+        StaticJsonDocument<200> doc;
+        DeserializationError error = deserializeJson(doc, msg);
+
+        if (!error) {
+            if (doc.containsKey("mode")) {
+                String mode = doc["mode"];
+                if (mode == "start_auto1") {
+                    autoMode1 = true;
+                    autoMode2 = false;  
+                } else if (mode == "start_auto2") {
+                    autoMode2 = true;
+                    autoMode1 = false;  
+                } else if (mode == "stop_all") {
+                    stopAllModes();
+                }
+            } else if (doc.containsKey("servo") && doc.containsKey("angle")) {
+                int servo = doc["servo"];
+                int angle = doc["angle"];
+                if (servo == 1) {
+                    servo1.write(angle);
+                } else if (servo == 2) {
+                    servo2.write(angle);
+                } else if (servo == 3) {
+                    servo3.write(angle);
+                } else if (servo == 4) {
+                    servo4.write(angle);
+                } else if (servo == 5) {
+                    servo5.write(angle);
+                }
+            }
+        }
+    }
+}
